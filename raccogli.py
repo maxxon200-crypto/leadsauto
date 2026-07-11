@@ -199,59 +199,132 @@ def get_html(url: str, timeout: int = REQUEST_TIMEOUT) -> str | None:
 # PARTE 0 — ISPEZIONE (guarda la struttura reale, non indovinare)
 # --------------------------------------------------------------------------- #
 
+# Marker tipici delle pagine di protezione anti-bot (Incapsula, Cloudflare,
+# DataDome, PerimeterX, ...). Se compaiono, requests da solo non basta.
+ANTIBOT_MARKERS = (
+    "incapsula", "_incapsula_resource", "captcha", "px-captcha", "perimeterx",
+    "datadome", "just a moment", "cf-challenge", "cloudflare", "access denied",
+    "verifica di sicurezza", "are you a human", "enable javascript",
+    "attiva javascript", "unusual traffic",
+)
+
+
+def _raw_fetch(url: str) -> dict:
+    """Fetch GREZZO per l'ispezione: cattura status/headers/body ANCHE su
+    risposte non-200 o pagine anti-bot (a differenza di get_html che scarta
+    tutto ciò che non è 200). Non solleva mai; ritorna sempre un dict."""
+    if _FIXTURES is not None:
+        html = _FIXTURES.get(url)
+        if html is None:
+            return {"error": "fixture assente"}
+        return {"status": 200, "ctype": "text/html", "text": html}
+    try:
+        resp = requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
+        if not resp.encoding or resp.encoding.lower() == "iso-8859-1":
+            resp.encoding = resp.apparent_encoding or resp.encoding
+        return {
+            "status": resp.status_code,
+            "ctype": resp.headers.get("Content-Type", "?"),
+            "text": resp.text or "",
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {"error": f"{type(exc).__name__}: {exc}"}
+    finally:
+        if _FIXTURES is None:
+            time.sleep(SLEEP_SECONDS)
+
+
+def _analizza_struttura(html: str, url: str) -> None:
+    """Stampa titolo, classi ripetute e resa dei selettori candidati."""
+    soup = BeautifulSoup(html, "html.parser")
+    title = soup.title.get_text(strip=True) if soup.title else "(nessun <title>)"
+    print(f"    <title>: {title}")
+
+    print("    Classi più ripetute (candidati per il blocco risultato):")
+    for cls, n in _frequent_block_classes(soup)[:12]:
+        print(f"      {n:>3}x  .{cls}")
+
+    print("    Risultati per selettore candidato:")
+    best = None
+    for sel in ITEM_SELECTORS:
+        try:
+            found = soup.select(sel)
+        except Exception:  # selettore non valido su questo parser
+            continue
+        if found:
+            print(f"      {len(found):>3}x  {sel}")
+            if best is None:
+                best = (sel, found)
+    if best:
+        sel, found = best
+        print(f"\n    Selettore scelto: {sel} -> {len(found)} blocchi. Primo blocco parsato:")
+        rec = parse_item(found[0], base_url=url)
+        for k, v in rec.items():
+            print(f"      {k:12}: {v!r}")
+    else:
+        print("\n    NESSUN selettore candidato ha trovato blocchi.")
+        print("    Apri il file HTML salvato, individua il contenitore dei risultati")
+        print("    e aggiungi il suo selettore in ITEM_SELECTORS.")
+
+
 def inspect_city(citta: str) -> None:
-    """Scarica UNA pagina di esempio, salva l'HTML e analizza la struttura."""
+    """Scarica UNA pagina, la SALVA SEMPRE (anche se bloccata) e la analizza.
+
+    Salvare sempre un artefatto serve al tuo workflow `start inspect_<citta>.html`:
+    così hai comunque qualcosa da aprire e da inviarmi, sia che PagineGialle
+    risponda con i risultati, sia che risponda con una pagina anti-bot.
+    """
     print(f"=== ISPEZIONE — {citta} ===")
+    fpath = OUTPUT_DIR / f"inspect_{slugify(citta)}.html"
+    saved = False
+
     for tmpl in SEARCH_URL_TEMPLATES:
         url = build_search_url(tmpl, citta, page=1)
         print(f"\n--- provo: {url}")
-        html = get_html(url)
-        if not html:
-            print("    nessuna risposta utile (vedi messaggio sopra).")
+        res = _raw_fetch(url)
+
+        if "error" in res:
+            print(f"    [errore rete] {res['error']}")
             continue
 
-        fpath = OUTPUT_DIR / f"inspect_{slugify(citta)}.html"
+        status, text, ctype = res["status"], res.get("text", ""), res.get("ctype", "?")
+        print(f"    HTTP {status} | {ctype} | {len(text)} caratteri")
+
+        # Salva SEMPRE l'artefatto (anche corpo vuoto o pagina di blocco).
         try:
-            fpath.write_text(html, encoding="utf-8")
-            print(f"    HTML salvato in {fpath} ({len(html)} caratteri)")
+            fpath.write_text(text or f"<!-- HTTP {status}: corpo vuoto -->",
+                             encoding="utf-8")
+            print(f"    -> salvato in {fpath}   (aprilo con:  start {fpath.name})")
+            saved = True
         except Exception as exc:  # noqa: BLE001
-            print(f"    (impossibile salvare l'HTML: {exc})")
+            print(f"    (impossibile salvare: {exc})")
 
-        soup = BeautifulSoup(html, "html.parser")
+        markers = [m for m in ANTIBOT_MARKERS if m in text.lower()]
+        if status != 200 or markers:
+            print(f"    /!\\ pagina NON di risultati (status={status}, "
+                  f"anti-bot={markers or 'nessun marker'}).")
+            print("        Se aprendola vedi una verifica/captcha, PagineGialle")
+            print("        blocca 'requests': passiamo al piano B (Ordini Architetti).")
+            continue  # prova il prossimo template
 
-        # Anteprima leggibile dell'inizio del <body>.
-        title = soup.title.get_text(strip=True) if soup.title else "(nessun <title>)"
-        print(f"    <title>: {title}")
+        _analizza_struttura(text, url)
+        return  # pagina utile: fatto
 
-        # Auto-individuazione dei blocchi ripetuti: conta le classi dei <div>/<article>/<li>.
-        print("    Classi più ripetute (candidati per il blocco risultato):")
-        for cls, n in _frequent_block_classes(soup)[:12]:
-            print(f"      {n:>3}×  .{cls}")
-
-        # Quanto rende ciascun ITEM_SELECTOR conosciuto.
-        print("    Risultati per selettore candidato:")
-        best = None
-        for sel in ITEM_SELECTORS:
-            try:
-                found = soup.select(sel)
-            except Exception:  # selettore non valido su questo parser
-                continue
-            if found:
-                print(f"      {len(found):>3}×  {sel}")
-                if best is None:
-                    best = (sel, found)
-        if best:
-            sel, found = best
-            print(f"\n    Selettore scelto: {sel} -> {len(found)} blocchi. Primo blocco parsato:")
-            rec = parse_item(found[0], base_url=url)
-            for k, v in rec.items():
-                print(f"      {k:12}: {v!r}")
-        else:
-            print("\n    NESSUN selettore candidato ha trovato blocchi.")
-            print("    Apri il file HTML salvato, individua il contenitore dei risultati")
-            print("    e aggiungi il suo selettore in ITEM_SELECTORS.")
-        return  # ci basta il primo template che risponde
-    print("\nNessun template ha restituito HTML. Il sito potrebbe essere bloccato/anti-bot.")
+    if not saved:
+        # Nessuna risposta salvabile: scrivo un artefatto diagnostico così
+        # `start inspect_<citta>.html` apre comunque qualcosa di informativo.
+        diag = (
+            f"<html><head><meta charset='utf-8'><title>Ispezione {citta}</title></head>"
+            f"<body style='font-family:sans-serif'><h1>Ispezione {citta}: nessuna risposta</h1>"
+            f"<p>Nessun template ha restituito una pagina. Cause tipiche: rete "
+            f"assente, timeout, o blocco anti-bot a monte.</p></body></html>"
+        )
+        try:
+            fpath.write_text(diag, encoding="utf-8")
+            print(f"\n(artefatto diagnostico scritto in {fpath})")
+        except Exception:  # noqa: BLE001
+            pass
+    print("\nNessun template ha restituito una pagina di risultati utile.")
 
 
 def _frequent_block_classes(soup: BeautifulSoup) -> list[tuple[str, int]]:
