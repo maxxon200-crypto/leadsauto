@@ -37,3 +37,6 @@ output/
 # Keep example config and test fixtures tracked
 !config/*.example.yaml
 !tests/**/*.csv
+
+# raccogli.py --inspect dumps
+inspect_*.html

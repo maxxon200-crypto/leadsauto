@@ -8,6 +8,11 @@ It is deliberately backend-first and framework-light: a small, tested core
 (`Lead` model → source → enrich → dedupe → storage) driven by a simple CLI, with
 new directories added through **configuration, not code**.
 
+> **Cerchi lo script PagineGialle?** Vedi [`raccogli.py`](#script-raccoglipy--paginegialle--architetti-italiani)
+> più in basso: uno script standalone (solo `requests` / `beautifulsoup4` /
+> `pandas`) che raccoglie studi di architettura da PagineGialle su 40 città,
+> qualifica i siti (punteggio 1–10) ed estrae le email (scartando le PEC).
+
 ```
 ┌─────────┐   ┌─────────┐   ┌────────┐   ┌────────┐   ┌──────────────┐
 │ source  │──▶│ enrich  │──▶│ dedupe │──▶│ store  │──▶│ CSV / SQLite │
@@ -163,6 +168,62 @@ anyone:
 
 You are responsible for how you use scraped data. This project ships with only
 fictional sample data and an *example* (non-real) directory config.
+
+---
+
+## Script `raccogli.py` — PagineGialle → architetti italiani
+
+Script **standalone** (indipendente dal package `leadsauto`) che raccoglie lead
+di studi di architettura da **PagineGialle** su 40 città italiane, in 3 fasi:
+
+1. **RACCOLTA** — scraping dei risultati per città con paginazione → nome, città,
+   telefono, sito.
+2. **QUALIFICAZIONE** — punteggio **1–10** del sito (10 = sito pessimo = lead
+   migliore): nessun sito → 10; builder (wix/jimdo/altervista/weebly/business.site)
+   o sito irraggiungibile → 9; manca `<meta viewport>` → +3; copyright < 2022 → +2;
+   `<table>` di layout / `<center>` / `<marquee>` → +2; jQuery o Bootstrap 3 → +1;
+   sito moderno/responsive → base 2.
+3. **EMAIL** — estrazione dal sito (homepage + `/contatti`, `/contatto`,
+   `/contact`, `/chi-siamo`, `/studio`), **scartando le PEC** (`pec.`,
+   `@pec.it`, `@legalmail.it`, `@arubapec.it`) e gli indirizzi inutili
+   (`noreply@`, `wordpress@`, `esempio@`).
+
+Output: **`lead-architetti.csv`** ordinato per punteggio decrescente
+(`nome_studio | citta | email | sito_attuale | punteggio | note`).
+
+Dipendenze: **solo** `requests`, `beautifulsoup4`, `pandas` (parser `html.parser`
+di serie — niente `lxml`). Rispetta `time.sleep(2)` tra ogni richiesta, avvolge
+**tutto** in `try/except` (non crasha mai a metà), salva un **checkpoint ogni 30
+righe** e riprende con `--resume`.
+
+```bash
+pip install requests beautifulsoup4 pandas
+
+# 0) ISPEZIONA prima la struttura reale di UNA pagina (non indovinare i selettori)
+python raccogli.py --inspect Lucca
+#    -> salva inspect_lucca.html, elenca le classi ripetute e prova i selettori.
+#    Se PagineGialle ha cambiato markup, adatta SEARCH_URL_TEMPLATES / ITEM_SELECTORS.
+
+# 1) prova la logica OFFLINE (nessuna rete, fixture incluse)
+python raccogli.py --self-test
+
+# 2) test su 2 città
+python raccogli.py --test            # Lucca, Arezzo
+
+# 3) run completo su tutte e 40 le città
+python raccogli.py
+
+python raccogli.py --resume          # riprende dai checkpoint dopo un'interruzione
+python raccogli.py --cities Milano Roma
+```
+
+> **Nota su PagineGialle e anti-bot.** Il parser non si affida a un singolo
+> selettore fisso: prova più selettori candidati e sceglie quello che estrae più
+> risultati. PagineGialle può però servire pagine protette da anti-bot a un
+> semplice `requests.get`: per questo il primo passo è **`--inspect`**, che ti
+> mostra la struttura reale così puoi adattare selettori/URL. Scrapa solo ciò che
+> ti è consentito e ricorda che i dati degli architetti sono dati personali (GDPR):
+> le PEC sono già escluse perché per legge non vanno usate per fini commerciali.
 
 ## License
 
