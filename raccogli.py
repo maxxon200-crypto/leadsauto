@@ -4,16 +4,20 @@
 raccogli.py — Raccolta lead di studi di architettura italiani da PagineGialle.
 
 Dipendenze (SOLO librerie gratuite, come richiesto):
-    pip install requests beautifulsoup4 pandas
+    py -m pip install requests beautifulsoup4 pandas
     (usa il parser 'html.parser' di serie: lxml NON è necessario)
 
-Uso:
-    python raccogli.py --inspect Lucca     # PARTE 0: ispeziona l'HTML reale di UNA pagina
-    python raccogli.py --self-test         # verifica la logica offline (niente rete)
-    python raccogli.py --test              # esegue su 2 città di prova (Lucca, Arezzo)
-    python raccogli.py                      # esegue su tutte e 40 le città
-    python raccogli.py --cities Milano Roma # città a scelta
-    python raccogli.py --resume             # riprende dai checkpoint esistenti
+Uso (Prompt dei comandi Windows — usa 'py'; su Mac/Linux usa 'python3'):
+    py raccogli.py --inspect Lucca      # PARTE 0: ispeziona l'HTML reale di UNA pagina
+    py raccogli.py --self-test          # verifica la logica offline (niente rete)
+    py raccogli.py --test               # esegue su 2 città di prova (Lucca, Arezzo)
+    py raccogli.py                       # esegue su tutte e 40 le città
+    py raccogli.py --cities Milano Roma  # città a scelta
+    py raccogli.py --resume              # riprende dai checkpoint esistenti
+
+    I file (lead-architetti.csv, checkpoint, dump --inspect) vengono creati
+    nella cartella da cui lanci il comando. Percorsi gestiti con pathlib,
+    quindi funzionano identici su Windows e Unix.
 
 Lo script fa 3 cose in sequenza:
     PARTE 1 — RACCOLTA:       scraping dei risultati PagineGialle per città (con paginazione).
@@ -41,10 +45,10 @@ NOTA IMPORTANTE SULLA STRUTTURA HTML:
 from __future__ import annotations
 
 import argparse
-import os
 import re
 import sys
 import time
+from pathlib import Path
 from urllib.parse import quote, urljoin, urlparse
 
 import pandas as pd
@@ -84,9 +88,12 @@ SITE_TIMEOUT = 10          # timeout richiesto per i siti degli studi
 MAX_PAGES = 10             # tetto di sicurezza alla paginazione per città
 CHECKPOINT_EVERY = 30      # ogni quante righe salvare il checkpoint
 
-OUTPUT_FILE = "lead-architetti.csv"
-CHECKPOINT_FILE = "checkpoint.csv"       # righe qualificate (PARTE 2/3) — ripresa
-RACCOLTA_FILE = "studi_raccolti.csv"     # output grezzo PARTE 1 — ripresa
+# File di output/ripresa: sempre pathlib.Path (mai stringhe con "/"), relativi
+# alla cartella da cui lanci lo script. Funzionano identici su Windows e Unix.
+OUTPUT_DIR = Path.cwd()
+OUTPUT_FILE = OUTPUT_DIR / "lead-architetti.csv"
+CHECKPOINT_FILE = OUTPUT_DIR / "checkpoint.csv"       # righe qualificate (PARTE 2/3) — ripresa
+RACCOLTA_FILE = OUTPUT_DIR / "studi_raccolti.csv"     # output grezzo PARTE 1 — ripresa
 
 # Template URL di ricerca. Vengono provati in ordine: si usa il primo che
 # restituisce risultati parsabili. `{q}` = query, `{slug}` = città, `{page}`.
@@ -203,11 +210,10 @@ def inspect_city(citta: str) -> None:
             print("    nessuna risposta utile (vedi messaggio sopra).")
             continue
 
-        fname = f"inspect_{slugify(citta)}.html"
+        fpath = OUTPUT_DIR / f"inspect_{slugify(citta)}.html"
         try:
-            with open(fname, "w", encoding="utf-8") as fh:
-                fh.write(html)
-            print(f"    HTML salvato in {fname} ({len(html)} caratteri)")
+            fpath.write_text(html, encoding="utf-8")
+            print(f"    HTML salvato in {fpath} ({len(html)} caratteri)")
         except Exception as exc:  # noqa: BLE001
             print(f"    (impossibile salvare l'HTML: {exc})")
 
@@ -615,7 +621,7 @@ def _row_key(nome: str, citta: str, sito: str) -> str:
     return f"{(nome or '').strip().lower()}|{(citta or '').strip().lower()}|{(sito or '').strip().lower()}"
 
 
-def _save_csv(rows: list[dict], path: str) -> None:
+def _save_csv(rows: list[dict], path: Path) -> None:
     try:
         pd.DataFrame(rows, columns=COLS).to_csv(
             path, index=False, encoding="utf-8-sig"
@@ -624,9 +630,9 @@ def _save_csv(rows: list[dict], path: str) -> None:
         print(f"    [attenzione] impossibile salvare {path}: {exc}")
 
 
-def _load_done_keys(path: str) -> tuple[list[dict], set[str]]:
+def _load_done_keys(path: Path) -> tuple[list[dict], set[str]]:
     """Carica le righe già qualificate dal checkpoint per la ripresa."""
-    if not os.path.exists(path):
+    if not Path(path).exists():
         return [], set()
     try:
         df = pd.read_csv(path, encoding="utf-8-sig", dtype=str).fillna("")
@@ -646,7 +652,7 @@ def _load_done_keys(path: str) -> tuple[list[dict], set[str]]:
 
 def raccolta_grezza(citta_list: list[str], use_cache: bool) -> list[dict]:
     """PARTE 1 completa, con cache su RACCOLTA_FILE per la ripresa."""
-    if use_cache and os.path.exists(RACCOLTA_FILE):
+    if use_cache and RACCOLTA_FILE.exists():
         try:
             df = pd.read_csv(RACCOLTA_FILE, encoding="utf-8-sig", dtype=str).fillna("")
             studi = df.to_dict("records")
@@ -947,7 +953,22 @@ def self_test() -> int:
 # CLI
 # --------------------------------------------------------------------------- #
 
+def _fix_console_encoding() -> None:
+    """Evita UnicodeEncodeError sui simboli (✓ © — →) nel Prompt dei comandi.
+
+    La console di Windows usa spesso una code page legacy (cp1252/cp850) che
+    non sa stampare questi caratteri e solleverebbe UnicodeEncodeError. Con
+    errors='replace' la stampa non fa mai crashare lo script.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:  # Python <3.7 o stream non riconfigurabile
+            pass
+
+
 def main(argv: list[str] | None = None) -> int:
+    _fix_console_encoding()
     parser = argparse.ArgumentParser(
         description="Raccolta lead studi di architettura da PagineGialle."
     )
