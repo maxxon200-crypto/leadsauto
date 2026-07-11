@@ -751,10 +751,14 @@ def raccolta_grezza(citta_list: list[str], use_cache: bool) -> list[dict]:
     return studi
 
 
-def qualifica_e_email(studi: list[dict]) -> list[dict]:
-    """PARTE 2 + PARTE 3 con checkpoint ogni CHECKPOINT_EVERY righe."""
+def qualifica_e_email(studi: list[dict], checkpoint_file: Path = CHECKPOINT_FILE) -> list[dict]:
+    """PARTE 2 + PARTE 3 con checkpoint ogni CHECKPOINT_EVERY righe.
+
+    Riutilizzabile da altri collector (es. raccogli_ordini.py): basta passare
+    un checkpoint_file diverso.
+    """
     print("PARTE 2+3 — QUALIFICAZIONE ed EMAIL")
-    rows, done = _load_done_keys(CHECKPOINT_FILE)
+    rows, done = _load_done_keys(checkpoint_file)
 
     processate_da_ultimo_salvataggio = 0
     try:
@@ -776,8 +780,13 @@ def qualifica_e_email(studi: list[dict]) -> list[dict]:
                     punteggio, note = 9, "sito irraggiungibile/errore"
                 else:
                     punteggio, note = _qualifica_da_html(sito, homepage_html)
-                # PARTE 3 — email
-                email = trova_email(sito, homepage_html) if sito else ""
+                # PARTE 3 — email: se il collector ne ha già fornita una valida
+                # (non-PEC, non-junk) la teniamo; altrimenti la cerchiamo sul sito.
+                email_iniziale = (studio.get("email") or "").strip().lower()
+                if email_iniziale and not is_pec(email_iniziale) and not is_junk(email_iniziale):
+                    email = email_iniziale
+                else:
+                    email = trova_email(sito, homepage_html) if sito else ""
             except Exception as exc:  # noqa: BLE001 — mai crashare a metà
                 punteggio, note, email = 0, f"errore: {type(exc).__name__}", ""
                 print(f"      [errore studio] {exc}")
@@ -795,16 +804,16 @@ def qualifica_e_email(studi: list[dict]) -> list[dict]:
             print(f"      punteggio={punteggio}  email={email or '—'}  ({note})")
 
             if processate_da_ultimo_salvataggio >= CHECKPOINT_EVERY:
-                _save_csv(rows, CHECKPOINT_FILE)
+                _save_csv(rows, checkpoint_file)
                 print(f"  >> checkpoint salvato ({len(rows)} righe)")
                 processate_da_ultimo_salvataggio = 0
     except KeyboardInterrupt:
         # Interruzione manuale: salva comunque quanto fatto per poter riprendere.
         print("\n  interruzione: salvo il checkpoint prima di uscire...")
-        _save_csv(rows, CHECKPOINT_FILE)
+        _save_csv(rows, checkpoint_file)
         raise
 
-    _save_csv(rows, CHECKPOINT_FILE)
+    _save_csv(rows, checkpoint_file)
     return rows
 
 
@@ -845,17 +854,17 @@ def _qualifica_da_html(sito: str, html: str) -> tuple[int, str]:
     return score, "; ".join(note)
 
 
-def scrivi_output(rows: list[dict]) -> None:
+def scrivi_output(rows: list[dict], output_file: Path = OUTPUT_FILE) -> None:
     """Ordina per punteggio decrescente e salva l'output finale."""
     if not rows:
         print("Nessuna riga da salvare.")
-        _save_csv([], OUTPUT_FILE)
+        _save_csv([], output_file)
         return
     df = pd.DataFrame(rows, columns=COLS)
     df["punteggio"] = pd.to_numeric(df["punteggio"], errors="coerce").fillna(0).astype(int)
     df = df.sort_values("punteggio", ascending=False, kind="stable").reset_index(drop=True)
-    df.to_csv(OUTPUT_FILE, index=False, encoding="utf-8-sig")
-    print(f"\n✓ Output salvato: {OUTPUT_FILE} ({len(df)} righe)")
+    df.to_csv(output_file, index=False, encoding="utf-8-sig")
+    print(f"\n✓ Output salvato: {output_file} ({len(df)} righe)")
     print("\n=== PRIME 10 RIGHE ===")
     with pd.option_context("display.max_colwidth", 40, "display.width", 200):
         print(df.head(10).to_string(index=False))

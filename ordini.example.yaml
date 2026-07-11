@@ -1,0 +1,46 @@
+# Configurazione di scraping per gli Ordini degli Architetti (Piano B).
+#
+# Copia questo file in `ordini.yaml`, poi per OGNI provincia che ti serve:
+#   1) trova la pagina di ricerca albo/iscritti:
+#         py raccogli_ordini.py --inspect Lucca
+#      (o, se conosci l'URL della pagina albo, direttamente:
+#         py raccogli_ordini.py --inspect-url https://www.architettilucca.it/albo )
+#   2) apri l'HTML salvato, individua il blocco che si ripete per ogni iscritto
+#      e i selettori dei campi, e compilali qui sotto.
+#   3) lancia:  py raccogli_ordini.py --scrape --config ordini.yaml
+#
+# Campi di ogni voce sotto `fields`:
+#   selector      selettore CSS relativo al blocco iscritto (ometti = tutto il blocco)
+#   attr          leggi questo attributo invece del testo (es. "href")
+#   strip_prefix  togli questo prefisso dal valore (es. "mailto:")
+#   absolute      risolvi un URL relativo rispetto a base_url (true/false)
+#
+# Placeholder in `search_url`:
+#   {page}   numero di pagina (1..max_pages). Ometti se l'albo è in pagina unica.
+#
+# NOTA: i valori qui sotto sono ESEMPI da adattare ai selettori REALI che vedi
+# con --inspect. Non sono garantiti: gli Ordini cambiano sito/struttura.
+
+ordini:
+  Lucca:
+    base_url: "https://www.architettilucca.it"
+    search_url: "https://www.architettilucca.it/albo?pag={page}"
+    max_pages: 10
+    list_selector: "tr.iscritto"          # <-- da verificare con --inspect
+    fields:
+      nome:     { selector: "td.nome" }
+      citta:    { selector: "td.comune" }
+      email:    { selector: "td.email a", attr: "href", strip_prefix: "mailto:" }
+      telefono: { selector: "td.telefono" }
+      sito:     { selector: "td.sito a", attr: "href", absolute: true }
+
+  Arezzo:
+    base_url: "https://www.architettiarezzo.it"
+    search_url: "https://www.architettiarezzo.it/iscritti"
+    max_pages: 1                          # pagina unica: niente {page}
+    list_selector: "div.iscritto"         # <-- da verificare con --inspect
+    fields:
+      nome:  { selector: ".nominativo" }
+      citta: { selector: ".comune" }
+      email: { selector: "a[href^='mailto:']", attr: "href", strip_prefix: "mailto:" }
+      sito:  { selector: "a.sito", attr: "href" }

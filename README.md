@@ -225,6 +225,41 @@ python raccogli.py --cities Milano Roma
 > ti è consentito e ricorda che i dati degli architetti sono dati personali (GDPR):
 > le PEC sono già escluse perché per legge non vanno usate per fini commerciali.
 
+## Script `raccogli_ordini.py` — Piano B: Ordini degli Architetti
+
+Fonte **alternativa** a PagineGialle: gli **albi degli Ordini degli Architetti**
+provinciali (fonte anagrafica ufficiale, di norma molto meno protetta da
+anti-bot). Utile quando `raccogli.py --inspect` mostra che PagineGialle serve
+una pagina di verifica/captcha.
+
+Riusa da `raccogli.py` la **qualificazione** (punteggio 1–10), l'**estrazione
+email** (con scarto PEC/junk) e la **scrittura output** — quindi stessa logica,
+stesso formato. Output: **`lead-architetti-ordini.csv`**.
+
+```bash
+py raccogli_ordini.py --list                 # elenca gli Ordini noti (URL da verificare)
+py raccogli_ordini.py --inspect Lucca         # ispeziona la pagina di una provincia nota
+py raccogli_ordini.py --inspect-url https://.../albo   # ispeziona un URL qualsiasi
+py raccogli_ordini.py --self-test             # verifica la logica offline (niente rete)
+py raccogli_ordini.py --scrape --config ordini.yaml    # scrapa gli Ordini configurati
+```
+
+**Flusso:** `--inspect <Provincia>` per vedere la struttura reale → compili
+`ordini.yaml` (parti da [`ordini.example.yaml`](ordini.example.yaml) con
+`search_url` + selettori) → `--scrape --config ordini.yaml`.
+
+> **Onestà sugli URL.** La mappa `ORDINI_HOMEPAGE` nello script contiene gli
+> indirizzi degli Ordini delle 40 province come **punti di partenza da
+> verificare** con `--inspect` (gli Ordini cambiano sito/endpoint nel tempo).
+> Molti espongono la ricerca albo sotto `/albo`, `/iscritti`,
+> `/ricerca-iscritti`, `/trova-architetto`. In alternativa esiste l'**Albo Unico
+> Nazionale** del CNAPPC.
+
+Nota: gli albi elencano spesso solo **PEC** (che vengono scartate) e talvolta
+nessun sito → in quel caso il lead resta valido con `punteggio 10` (nome +
+provincia da ricontattare), ed eventuali email **non-PEC** presenti nell'albo
+vengono conservate.
+
 ## License
 
 MIT
