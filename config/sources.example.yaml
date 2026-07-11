@@ -1,0 +1,50 @@
+# Example directory-source configuration for leadsauto.
+#
+# Copy this to `config/sources.yaml`, point it at a real directory you are
+# permitted to scrape, and adjust the CSS selectors to match its markup.
+#
+# Each source under `sources:` uses the config-driven `generic_directory`
+# scraper — no code changes required to add a new directory.
+#
+# Placeholders in `search_url`:
+#   {query}  -> URL-encoded search term (e.g. a city passed via --query)
+#   {page}   -> page number, incremented from `start_page` up to `max_pages`
+#
+# Field spec keys:
+#   selector      CSS selector, relative to each result block (omit = the block)
+#   attr          read this HTML attribute instead of the text (e.g. "href")
+#   strip_prefix  remove this prefix from the value (e.g. "mailto:")
+#   absolute      resolve a relative URL against base_url (true/false)
+
+sources:
+  example_directory:
+    type: generic_directory
+    description: "Example architect directory (replace with a real one you may scrape)"
+    base_url: "https://directory.example.it"
+    search_url: "https://directory.example.it/architetti?citta={query}&pagina={page}"
+    start_page: 1
+    max_pages: 5
+    list_selector: "div.professional-card"
+    fields:
+      name:
+        selector: "h3.pro-name"
+      studio:
+        selector: ".pro-studio"
+      email:
+        selector: "a.pro-email"
+        attr: "href"
+        strip_prefix: "mailto:"
+      phone:
+        selector: ".pro-phone"
+      website:
+        selector: "a.pro-website"
+        attr: "href"
+      city:
+        selector: ".pro-city"
+      source_url:
+        selector: "a.pro-profile"
+        attr: "href"
+        absolute: true
+    defaults:
+      profession: "Architetto"
+      country: "IT"

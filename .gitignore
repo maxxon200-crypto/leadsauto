@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Tooling
+.mypy_cache/
+.ruff_cache/
+
+# Local config & secrets
+.env
+
+# Scraped output (data is not source)
+*.csv
+*.sqlite
+*.sqlite3
+*.db
+data/
+output/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Keep example config and test fixtures tracked
+!config/*.example.yaml
+!tests/**/*.csv
